@@ -124,6 +124,31 @@
       }
     }
 
+    // basic HTML sanitizer to strip script tags and unsafe attributes
+    function sanitizeHTML(html){
+      if(!html) return '';
+      var div=document.createElement('div');
+      div.innerHTML=html;
+      // remove script elements
+      var scripts=div.getElementsByTagName('script');
+      while(scripts.length) scripts[0].parentNode.removeChild(scripts[0]);
+      // walk DOM to remove on* attributes and javascript: urls
+      var stack=[div];
+      while(stack.length){
+        var node=stack.pop();
+        if(node.children){
+          for(var i=0;i<node.children.length;i++) stack.push(node.children[i]);
+        }
+        if(node.attributes){
+          for(var j=node.attributes.length-1;j>=0;j--){
+            var a=node.attributes[j], n=a.name.toLowerCase(), v=a.value;
+            if(/^on/.test(n) || /javascript:/i.test(v)) node.removeAttribute(a.name);
+          }
+        }
+      }
+      return div.innerHTML;
+    }
+
     // ——— Blurb (date + weather) ———
     function fetchWeather(lat, lon, cb) {
       var url = 'https://api.open-meteo.com/v1/forecast?latitude='
@@ -274,7 +299,7 @@
                    it.getElementsByTagName('summary')[0]||
                    it.getElementsByTagName('content')[0],
               title=tEl?tEl.textContent:'(no title)',
-              desc=dEl?dEl.textContent:'';
+              desc=dEl?(dEl.innerHTML||dEl.textContent):'';
           var link=ent.link||'#',
               thumb=it.getElementsByTagName('media:thumbnail')[0]||
                     it.getElementsByTagName('media:content')[0]  ||
@@ -288,7 +313,7 @@
           d.appendChild(s);
 
           var art=document.createElement('div'); art.className='article-content';
-          var dv=document.createElement('div'); dv.innerHTML=desc; art.appendChild(dv);
+          var dv=document.createElement('div'); dv.innerHTML=sanitizeHTML(desc); art.appendChild(dv);
           if(img){
             var imgEl=document.createElement('img'); imgEl.src=img; art.appendChild(imgEl);
           }
