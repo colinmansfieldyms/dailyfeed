@@ -36,6 +36,7 @@
       width:100%; height:auto; display:block; margin-bottom:5px;
     }
     #loading { text-align:center; padding:20px; color:#666; }
+    #status { padding:10px; color:#0077cc; font-size:0.9em; }
   </style>
 </head>
 <body>
@@ -46,6 +47,8 @@
     </select>
     <button id="refresh">Refresh All Feeds</button>
   </header>
+
+  <div id="status"></div>
 
   <div id="blurb">Loading info…</div>
   <main id="content">
@@ -296,21 +299,24 @@
       sel.onchange=function(){ if(this.value) location=this.value; };
     }
 
-    function init(){
+   function init(){
       var c=document.getElementById('content');
-      c.innerHTML='<div id="loading">Loading feeds…</div>';
+      var status=document.getElementById('status');
+      c.innerHTML='';
+      status.textContent='Loading feeds…';
       document.getElementById('refresh').disabled=true;
 
       loadBlurb(function(){
         createNav();
-        c.innerHTML='';
         var cats=Object.keys(categories), i=0;
         (function next(){
           if(i<cats.length){
+            status.textContent='Loading '+cats[i]+' ('+(i+1)+'/'+cats.length+')…';
             loadCategory(cats[i],categories[cats[i]],function(){
               i++; next();
             });
           } else {
+            status.textContent='Feeds loaded.';
             var b=document.getElementById('refresh');
             b.disabled=false; b.textContent='Refresh All Feeds';
           }
