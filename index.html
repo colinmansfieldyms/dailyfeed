@@ -54,6 +54,24 @@
 
   <script>
     // ——— Helpers ———
+    if(!String.prototype.trim){String.prototype.trim=function(){return this.replace(/^\s+|\s+$/g,"");};}
+    if(!Array.prototype.forEach){Array.prototype.forEach=function(cb,thisArg){if(this==null||typeof cb!=="function")return;for(var i=0;i<this.length;i++){if(i in this)cb.call(thisArg,this[i],i,this);}};}
+    function supportsDetails(){return "open" in document.createElement("details");}
+    function applyDetailsFallback(root){
+      if(supportsDetails()) return;
+      var dets=(root||document).getElementsByTagName("details");
+      for(var i=0;i<dets.length;i++){
+        var d=dets[i];
+        if(d.__pf) continue;
+        var s=d.getElementsByTagName("summary")[0];
+        if(!s) continue;
+        var div=document.createElement("div");
+        while(s.nextSibling){ div.appendChild(s.nextSibling); }
+        div.style.display=d.hasAttribute("open")?"block":"none";
+        s.onclick=(function(c){return function(){c.style.display=c.style.display==="none"?"block":"none";};})(div);
+        d.appendChild(div); d.__pf=true;
+      }
+    }
     function getOrdinal(n) {
       var s=["th","st","nd","rd"], v=n%100;
       return n + (s[(v-20)%10]||s[v]||s[0]);
@@ -260,6 +278,7 @@
           sec.appendChild(d);
         });
         document.getElementById('content').appendChild(sec);
+        applyDetailsFallback(sec);
         done&&done();
       });
     }
