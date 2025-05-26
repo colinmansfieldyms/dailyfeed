@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Feed</title>
+  <style>
+    body { font-family: sans-serif; margin:0; max-width:600px; padding-top:60px; }
+    header {
+      padding:10px;
+      background:#f8f8f8;
+      border-bottom:1px solid #ddd;
+      position:fixed; top:0; left:0; right:0; z-index:10;
+    }
+    header select#categorySelect { padding:8px; font-size:1em; }
+    header button#refresh {
+      margin-left:10px; padding:6px 12px; font-size:0.9em;
+      background:none; border:1px solid #0077cc; border-radius:4px;
+      color:#0077cc; cursor:pointer;
+    }
+    #blurb {
+      padding:10px; background:#fafafa; border-bottom:1px solid #ddd;
+      font-size:0.95em; line-height:1.4; min-height:60px;
+    }
+    section { padding:10px; }
+    section h2 {
+      font-size:1.5em; color:#D35400; margin-bottom:5px;
+    }
+    .back-to-top {
+      font-size:0.8em; text-decoration:none; color:#0077cc; float:right;
+    }
+    details summary { padding:5px; background:#eee; cursor:pointer; }
+    details { margin-bottom:10px; }
+    .article-content { padding:5px 10px; }
+    .article-content img {
+      width:100%; height:auto; display:block; margin-bottom:5px;
+    }
+    #loading { text-align:center; padding:20px; color:#666; }
+  </style>
+</head>
+<body>
+  <a id="top"></a>
+  <header>
+    <select id="categorySelect">
+      <option value="">Go to category...</option>
+    </select>
+    <button id="refresh">Refresh All Feeds</button>
+  </header>
+
+  <div id="blurb">Loading info…</div>
+  <main id="content">
+    <div id="loading">Loading feeds…</div>
+  </main>
+
+  <script>
+    // ——— Helpers ———
+    function getOrdinal(n) {
+      var s=["th","st","nd","rd"], v=n%100;
+      return n + (s[(v-20)%10]||s[v]||s[0]);
+    }
+    function mapWeatherCode(c) {
+      if(c===0) return "Clear";
+      if(c===1) return "Mainly clear";
+      if(c===2) return "Partly cloudy";
+      if(c===3) return "Overcast";
+      if(c>=45&&c<=48) return "Fog";
+      if(c>=51&&c<=55) return "Drizzle";
+      if(c>=61&&c<=65) return "Rain";
+      if(c>=71&&c<=75) return "Snow";
+      if(c>=80&&c<=82) return "Showers";
+      if(c>=95&&c<=99) return "Thunderstorm";
+      return "Unknown";
+    }
+    function sanitizeId(str) {
+      return str.toLowerCase()
+                .replace(/&/g,'and')
+                .replace(/[^a-z0-9]+/g,'-')
+                .replace(/^-+|-+$/g,'');
+    }
+    function shuffleArray(a){
+      for(var i=a.length-1;i>0;i--){
+        var j=Math.floor(Math.random()*(i+1)), t=a[i];
+        a[i]=a[j]; a[j]=t;
+      }
+    }
+
+    // ——— Blurb (date + weather) ———
+    function fetchWeather(lat, lon, cb) {
+      var url = 'https://api.open-meteo.com/v1/forecast?latitude='
+              + lat + '&longitude=' + lon + '&current_weather=true';
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.onreadystatechange = function() {
+        if(xhr.readyState===4){
+          if(xhr.status>=200&&xhr.status<300){
+            try {
+              var d = JSON.parse(xhr.responseText);
+              cb(null, d.current_weather);
+            } catch(e) { cb(e); }
+          } else cb(new Error("WX status " + xhr.status));
+        }
+      };
+      xhr.onerror = function(){ cb(new Error("WX error")); };
+      xhr.send();
+    }
+    function loadBlurb(done) {
+      var b=document.getElementById('blurb'),
+          now=new Date(),
+          days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+          months=["January","February","March","April","May","June","July","August","September","October","November","December"],
+          ds=days[now.getDay()]+', '+months[now.getMonth()]+' '
+            +getOrdinal(now.getDate())+' '+now.getFullYear();
+      b.textContent=ds+' — loading weather…';
+
+      // default Beaumont CA if geo hangs
+      var lat=33.9295, lon=-116.9772, used=false, to;
+      function doneWX(err, cw){
+        if(used) return;
+        used=true;
+        if(!err && cw){
+          var f=Math.round(cw.temperature*9/5+32),
+              desc=mapWeatherCode(cw.weathercode);
+          b.textContent=ds+' — '+f+'°F, '+desc;
+        } else {
+          b.textContent=ds+' — weather unavailable';
+        }
+        done&&done();
+      }
+      // only try real geo if not Kindle UA
+      if(navigator.geolocation && !/Kindle/i.test(navigator.userAgent)){
+        to=setTimeout(function(){ fetchWeather(lat,lon,doneWX); },5000);
+        navigator.geolocation.getCurrentPosition(function(p){
+          clearTimeout(to);
+          fetchWeather(p.coords.latitude,p.coords.longitude,doneWX);
+        },function(){
+          clearTimeout(to);
+          fetchWeather(lat,lon,doneWX);
+        });
+      } else {
+        fetchWeather(lat,lon,doneWX);
+      }
+    }
+
+    // ——— RSS fetching via raw endpoint ———
+    function fetchRSS(url, cb) {
+      var key='rsscache_'+url,
+          now=new Date(),
+          noon=new Date(now.getFullYear(),now.getMonth(),now.getDate(),12,0,0),
+          cached=null;
+      try{ cached=localStorage.getItem(key); }catch(e){}
+      if(cached){
+        try{
+          var o=JSON.parse(cached), last=new Date(o.timestamp);
+          if((last<noon&&now<noon)||(last>=noon&&now>=noon)){
+            var doc=new DOMParser().parseFromString(o.xml,'application/xml');
+            return cb(doc);
+          }
+        }catch(e){}
+      }
+      var xhr=new XMLHttpRequest();
+      xhr.open('GET','https://api.allorigins.win/raw?url='+encodeURIComponent(url),true);
+      xhr.onreadystatechange=function(){
+        if(xhr.readyState===4){
+          if(xhr.status===200){
+            var txt=xhr.responseText;
+            try{
+              localStorage.setItem(key,JSON.stringify({timestamp:new Date().toISOString(),xml:txt}));
+            }catch(e){}
+            var doc=xhr.responseXML||new DOMParser().parseFromString(txt,'application/xml');
+            return cb(doc);
+          }
+          cb(null);
+        }
+      };
+      xhr.onerror=function(){ cb(null); };
+      xhr.send();
+    }
+
+    // ——— selectItems with Atom fallback ———
+    function selectItems(feeds, cb){
+      var max=5, res=[], done=0;
+      function fin(){
+        var by={}; feeds.forEach(function(u){by[u]=[];});
+        res.forEach(function(r){
+          if(r.xml){
+            var list=r.xml.getElementsByTagName('item');
+            if(list.length===0) list=r.xml.getElementsByTagName('entry');
+            for(var i=0;i<list.length;i++){
+              var it=list[i],
+                  linkEl=it.getElementsByTagName('link')[0],
+                  href=linkEl?(linkEl.textContent.trim()||linkEl.getAttribute('href')||''):'',
+                  pub=it.getElementsByTagName('pubDate')[0]||it.getElementsByTagName('updated')[0],
+                  dt=pub?new Date(pub.textContent):new Date(0);
+              by[r.url].push({item:it,src:r.url,link:href,date:dt});
+            }
+          }
+        });
+        for(var s in by) by[s].sort(function(a,b){return b.date-a.date;});
+        var order=feeds.slice(), ptr={}, sel=[], added=true;
+        order.forEach(function(u){ptr[u]=0;});
+        while(added&&sel.length<max){
+          added=false;
+          for(var i=0;i<order.length&&sel.length<max;i++){
+            var u=order[i], idx=ptr[u];
+            if(idx<by[u].length){
+              sel.push(by[u][idx]);
+              ptr[u]++; added=true;
+            }
+          }
+        }
+        cb(sel);
+      }
+      feeds.forEach(function(u,i){
+        fetchRSS(u,function(doc){
+          res[i]={url:u,xml:doc};
+          done++;
+          if(done===feeds.length) fin();
+        });
+      });
+    }
+
+    // ——— render a category ———
+    function loadCategory(cat, feeds, done){
+      var sec=document.createElement('section'); sec.id=sanitizeId(cat);
+      var h2=document.createElement('h2');
+      h2.innerHTML=cat+'<a class="back-to-top" href="#top">Back to Top</a>';
+      sec.appendChild(h2);
+
+      selectItems(feeds,function(items){
+        items.forEach(function(ent){
+          var it=ent.item, src=ent.src,
+              tEl=it.getElementsByTagName('title')[0],
+              dEl=it.getElementsByTagName('description')[0]||
+                   it.getElementsByTagName('summary')[0]||
+                   it.getElementsByTagName('content')[0],
+              title=tEl?tEl.textContent:'(no title)',
+              desc=dEl?dEl.textContent:'';
+          var link=ent.link||'#',
+              thumb=it.getElementsByTagName('media:thumbnail')[0]||
+                    it.getElementsByTagName('media:content')[0]  ||
+                    it.getElementsByTagName('enclosure')[0],
+              img=thumb?(thumb.getAttribute('url')||thumb.getAttribute('src')):null;
+
+          var d=document.createElement('details'),
+              s=document.createElement('summary'),
+              name=feedSources[src]||'';
+          s.innerHTML='<strong>'+title+(name?(' ('+name+')'):'')+'</strong>';
+          d.appendChild(s);
+
+          var art=document.createElement('div'); art.className='article-content';
+          var dv=document.createElement('div'); dv.innerHTML=desc; art.appendChild(dv);
+          if(img){
+            var imgEl=document.createElement('img'); imgEl.src=img; art.appendChild(imgEl);
+          }
+          var p=document.createElement('p');
+          p.innerHTML='<a href="'+link+'" target="_blank">Read Original</a>';
+          art.appendChild(p);
+
+          d.appendChild(art);
+          sec.appendChild(d);
+        });
+        document.getElementById('content').appendChild(sec);
+        done&&done();
+      });
+    }
+
+    // ——— nav + init ———
+    function createNav(){
+      var sel=document.getElementById('categorySelect');
+      sel.innerHTML='<option value="">Go to category...</option>';
+      Object.keys(categories).forEach(function(cat){
+        var o=document.createElement('option');
+        o.value='#'+sanitizeId(cat);
+        o.textContent=cat;
+        sel.appendChild(o);
+      });
+      sel.onchange=function(){ if(this.value) location=this.value; };
+    }
+
+    function init(){
+      var c=document.getElementById('content');
+      c.innerHTML='<div id="loading">Loading feeds…</div>';
+      document.getElementById('refresh').disabled=true;
+
+      loadBlurb(function(){
+        createNav();
+        c.innerHTML='';
+        var cats=Object.keys(categories), i=0;
+        (function next(){
+          if(i<cats.length){
+            loadCategory(cats[i],categories[cats[i]],function(){
+              i++; next();
+            });
+          } else {
+            var b=document.getElementById('refresh');
+            b.disabled=false; b.textContent='Refresh All Feeds';
+          }
+        })();
+      });
+    }
+
+    document.getElementById('refresh').onclick=function(){
+      var b=this; b.disabled=true; b.textContent='Refreshing…';
+      Object.keys(feedSources).forEach(function(u){
+        try{ localStorage.removeItem('rsscache_'+u); }catch(e){}
+      });
+      init();
+    };
+
+    // ——— feeds & categories ———
+    var feedSources = {
+      "https://reutersbest.com/feed/": "Reuters Best",
+      "https://feeds.bbci.co.uk/news/rss.xml?edition=int": "BBC",
+      "https://feeds.foxnews.com/foxnews/latest": "Fox News",
+      "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml": "NYTimes",
+      "https://www.aljazeera.com/xml/rss/all.xml": "Al Jazeera",
+      "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml": "NYTimes Tech",
+      "https://www.freightwaves.com/feed/": "FreightWaves",
+      "https://www.economist.com/finance-and-economics/rss.xml": "The Economist",
+      "https://www.economist.com/business/rss.xml": "The Economist",
+      "https://rss.cnn.com/rss/edition_politics.rss": "CNN Politics",
+      "https://rss.politico.com/politics-news.xml": "Politico",
+      "https://feeds.bbci.co.uk/news/politics/rss.xml": "BBC Politics",
+      "https://feeds.foxnews.com/foxnews/politics": "Fox Politics",
+      "https://feeds.a.dj.com/rss/RSSPoliticalNews.xml": "WSJ Politics",
+      "https://variety.com/feed/": "Variety",
+      "https://www.billboard.com/feed/": "Billboard",
+      "http://rss.cnn.com/rss/money_topstories.rss": "CNN Money",
+      "http://rss.cnn.com/rss/edition.rss": "CNN",
+      "https://www.latimes.com/california/rss2.0.xml": "LA Times",
+      "https://www.theverge.com/rss/quickposts.xml": "The Verge Quickposts",
+      "https://www.theverge.com/rss/index.xml": "The Verge",
+      "https://www.latimes.com/entertainment-arts/movies/rss2.0.xml": "LA Times Movies"
+    };
+
+    var categories = {
+      "Top News": [
+        "http://rss.cnn.com/rss/edition.rss",
+        "https://reutersbest.com/feed/",
+        "https://feeds.bbci.co.uk/news/rss.xml?edition=int",
+        "https://feeds.foxnews.com/foxnews/latest",
+        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+        "https://www.latimes.com/california/rss2.0.xml",
+        "https://www.aljazeera.com/xml/rss/all.xml"
+      ],
+      "Technology": [
+        "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+        "https://www.theverge.com/rss/quickposts.xml",
+        "https://www.theverge.com/rss/index.xml"
+      ],
+      "Supply Chain & Logistics": [
+        "https://www.freightwaves.com/feed/"
+      ],
+      "Economy": [
+        "https://www.economist.com/finance-and-economics/rss.xml",
+        "https://www.economist.com/business/rss.xml",
+        "http://rss.cnn.com/rss/money_topstories.rss"
+      ],
+      "Politics": [
+        "https://rss.cnn.com/rss/edition_politics.rss",
+        "https://rss.politico.com/politics-news.xml",
+        "https://feeds.bbci.co.uk/news/politics/rss.xml",
+        "https://feeds.foxnews.com/foxnews/politics",
+        "https://feeds.a.dj.com/rss/RSSPoliticalNews.xml"
+      ],
+      "Media": [
+        "https://variety.com/feed/",
+        "https://www.billboard.com/feed/",
+        "https://www.latimes.com/entertainment-arts/movies/rss2.0.xml"
+      ]
+    };
+
+    // fire it up
+    init();
+  </script>
+</body>
+</html>
