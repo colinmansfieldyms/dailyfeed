@@ -267,6 +267,7 @@
       sec.appendChild(h2);
 
       selectItems(feeds,function(items){
+        shuffleArray(items);
         items.forEach(function(ent){
           var it=ent.item, src=ent.src,
               tEl=it.getElementsByTagName('title')[0],
