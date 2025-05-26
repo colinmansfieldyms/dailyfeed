@@ -17,6 +17,7 @@
       margin-left:10px; padding:6px; width:3em; font-size:0.9em;
     }
     header button#refresh {
+    header button {
       margin-left:10px; padding:6px 12px; font-size:0.9em;
       background:none; border:1px solid #0077cc; border-radius:4px;
       color:#0077cc; cursor:pointer;
@@ -40,6 +41,24 @@
     }
     #loading { text-align:center; padding:20px; color:#666; }
     #status { padding:10px; color:#0077cc; font-size:0.9em; }
+
+    /* Dark mode styles */
+    @media (prefers-color-scheme: dark) {
+      body:not(.light) { background:#121212; color:#ddd; }
+      body:not(.light) header { background:#333; border-bottom:1px solid #555; }
+      body:not(.light) #blurb { background:#1e1e1e; border-bottom:1px solid #555; }
+      body:not(.light) details summary { background:#222; }
+      body:not(.light) .back-to-top,
+      body:not(.light) #status,
+      body:not(.light) header button { color:#58a6ff; border-color:#58a6ff; }
+    }
+    body.dark { background:#121212; color:#ddd; }
+    body.dark header { background:#333; border-bottom:1px solid #555; }
+    body.dark #blurb { background:#1e1e1e; border-bottom:1px solid #555; }
+    body.dark details summary { background:#222; }
+    body.dark .back-to-top,
+    body.dark #status,
+    body.dark header button { color:#58a6ff; border-color:#58a6ff; }
   </style>
 </head>
 <body>
@@ -51,6 +70,7 @@
     <label for="articleLimitInput" style="margin-left:10px; font-size:0.9em;">Articles:</label>
     <input id="articleLimitInput" type="number" min="1" value="5" style="width:3em; font-size:0.9em;">
     <button id="refresh">Refresh All Feeds</button>
+    <button id="themeToggle">Dark Mode</button>
   </header>
 
   <div id="status"></div>
@@ -110,6 +130,31 @@
         var j=Math.floor(Math.random()*(i+1)), t=a[i];
         a[i]=a[j]; a[j]=t;
       }
+    }
+
+    // basic HTML sanitizer to strip script tags and unsafe attributes
+    function sanitizeHTML(html){
+      if(!html) return '';
+      var div=document.createElement('div');
+      div.innerHTML=html;
+      // remove script elements
+      var scripts=div.getElementsByTagName('script');
+      while(scripts.length) scripts[0].parentNode.removeChild(scripts[0]);
+      // walk DOM to remove on* attributes and javascript: urls
+      var stack=[div];
+      while(stack.length){
+        var node=stack.pop();
+        if(node.children){
+          for(var i=0;i<node.children.length;i++) stack.push(node.children[i]);
+        }
+        if(node.attributes){
+          for(var j=node.attributes.length-1;j>=0;j--){
+            var a=node.attributes[j], n=a.name.toLowerCase(), v=a.value;
+            if(/^on/.test(n) || /javascript:/i.test(v)) node.removeAttribute(a.name);
+          }
+        }
+      }
+      return div.innerHTML;
     }
 
     // ——— Blurb (date + weather) ———
@@ -262,7 +307,7 @@
                    it.getElementsByTagName('summary')[0]||
                    it.getElementsByTagName('content')[0],
               title=tEl?tEl.textContent:'(no title)',
-              desc=dEl?dEl.textContent:'';
+              desc=dEl?(dEl.innerHTML||dEl.textContent):'';
           var link=ent.link||'#',
               thumb=it.getElementsByTagName('media:thumbnail')[0]||
                     it.getElementsByTagName('media:content')[0]  ||
@@ -276,7 +321,7 @@
           d.appendChild(s);
 
           var art=document.createElement('div'); art.className='article-content';
-          var dv=document.createElement('div'); dv.innerHTML=desc; art.appendChild(dv);
+          var dv=document.createElement('div'); dv.innerHTML=sanitizeHTML(desc); art.appendChild(dv);
           if(img){
             var imgEl=document.createElement('img'); imgEl.src=img; art.appendChild(imgEl);
           }
@@ -342,16 +387,40 @@
       });
     }
 
-    document.getElementById('refresh').onclick=function(){
-      var b=this; b.disabled=true; b.textContent='Refreshing…';
-      Object.keys(feedSources).forEach(function(u){
-        try{ localStorage.removeItem('rsscache_'+u); }catch(e){}
-      });
-      init();
-    };
+  document.getElementById('refresh').onclick=function(){
+    var b=this; b.disabled=true; b.textContent='Refreshing…';
+    Object.keys(feedSources).forEach(function(u){
+      try{ localStorage.removeItem('rsscache_'+u); }catch(e){}
+    });
+    init();
+  };
 
-    // ——— feeds & categories ———
-    var feedSources = {
+  // ——— theme toggle ———
+  var themeToggle=document.getElementById('themeToggle');
+  function applyTheme(t){
+    document.body.classList.remove('light','dark');
+    if(t==='dark') document.body.classList.add('dark');
+    else if(t==='light') document.body.classList.add('light');
+    themeToggle.textContent=t==='dark'? 'Light Mode' : 'Dark Mode';
+  }
+  (function(){
+    var saved=null;
+    try{ saved=localStorage.getItem('theme'); }catch(e){}
+    if(saved==='dark' || saved==='light'){
+      applyTheme(saved);
+    } else {
+      var m=window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      themeToggle.textContent=m? 'Light Mode' : 'Dark Mode';
+    }
+  })();
+  themeToggle.onclick=function(){
+    var newTheme=document.body.classList.contains('dark')? 'light':'dark';
+    applyTheme(newTheme);
+    try{ localStorage.setItem('theme',newTheme); }catch(e){}
+  };
+
+  // ——— feeds & categories ———
+  var feedSources = {
       "https://reutersbest.com/feed/": "Reuters Best",
       "https://feeds.bbci.co.uk/news/rss.xml?edition=int": "BBC",
       "https://feeds.foxnews.com/foxnews/latest": "Fox News",
