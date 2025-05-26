@@ -13,7 +13,7 @@
       position:fixed; top:0; left:0; right:0; z-index:10;
     }
     header select#categorySelect { padding:8px; font-size:1em; }
-    header button#refresh {
+    header button {
       margin-left:10px; padding:6px 12px; font-size:0.9em;
       background:none; border:1px solid #0077cc; border-radius:4px;
       color:#0077cc; cursor:pointer;
@@ -37,6 +37,24 @@
     }
     #loading { text-align:center; padding:20px; color:#666; }
     #status { padding:10px; color:#0077cc; font-size:0.9em; }
+
+    /* Dark mode styles */
+    @media (prefers-color-scheme: dark) {
+      body:not(.light) { background:#121212; color:#ddd; }
+      body:not(.light) header { background:#333; border-bottom:1px solid #555; }
+      body:not(.light) #blurb { background:#1e1e1e; border-bottom:1px solid #555; }
+      body:not(.light) details summary { background:#222; }
+      body:not(.light) .back-to-top,
+      body:not(.light) #status,
+      body:not(.light) header button { color:#58a6ff; border-color:#58a6ff; }
+    }
+    body.dark { background:#121212; color:#ddd; }
+    body.dark header { background:#333; border-bottom:1px solid #555; }
+    body.dark #blurb { background:#1e1e1e; border-bottom:1px solid #555; }
+    body.dark details summary { background:#222; }
+    body.dark .back-to-top,
+    body.dark #status,
+    body.dark header button { color:#58a6ff; border-color:#58a6ff; }
   </style>
 </head>
 <body>
@@ -46,6 +64,7 @@
       <option value="">Go to category...</option>
     </select>
     <button id="refresh">Refresh All Feeds</button>
+    <button id="themeToggle">Dark Mode</button>
   </header>
 
   <div id="status"></div>
@@ -324,16 +343,40 @@
       });
     }
 
-    document.getElementById('refresh').onclick=function(){
-      var b=this; b.disabled=true; b.textContent='Refreshing…';
-      Object.keys(feedSources).forEach(function(u){
-        try{ localStorage.removeItem('rsscache_'+u); }catch(e){}
-      });
-      init();
-    };
+  document.getElementById('refresh').onclick=function(){
+    var b=this; b.disabled=true; b.textContent='Refreshing…';
+    Object.keys(feedSources).forEach(function(u){
+      try{ localStorage.removeItem('rsscache_'+u); }catch(e){}
+    });
+    init();
+  };
 
-    // ——— feeds & categories ———
-    var feedSources = {
+  // ——— theme toggle ———
+  var themeToggle=document.getElementById('themeToggle');
+  function applyTheme(t){
+    document.body.classList.remove('light','dark');
+    if(t==='dark') document.body.classList.add('dark');
+    else if(t==='light') document.body.classList.add('light');
+    themeToggle.textContent=t==='dark'? 'Light Mode' : 'Dark Mode';
+  }
+  (function(){
+    var saved=null;
+    try{ saved=localStorage.getItem('theme'); }catch(e){}
+    if(saved==='dark' || saved==='light'){
+      applyTheme(saved);
+    } else {
+      var m=window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      themeToggle.textContent=m? 'Light Mode' : 'Dark Mode';
+    }
+  })();
+  themeToggle.onclick=function(){
+    var newTheme=document.body.classList.contains('dark')? 'light':'dark';
+    applyTheme(newTheme);
+    try{ localStorage.setItem('theme',newTheme); }catch(e){}
+  };
+
+  // ——— feeds & categories ———
+  var feedSources = {
       "https://reutersbest.com/feed/": "Reuters Best",
       "https://feeds.bbci.co.uk/news/rss.xml?edition=int": "BBC",
       "https://feeds.foxnews.com/foxnews/latest": "Fox News",
