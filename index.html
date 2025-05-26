@@ -13,6 +13,10 @@
       position:fixed; top:0; left:0; right:0; z-index:10;
     }
     header select#categorySelect { padding:8px; font-size:1em; }
+    header input#articleLimitInput {
+      margin-left:10px; padding:6px; width:3em; font-size:0.9em;
+    }
+    header button#refresh {
     header button {
       margin-left:10px; padding:6px 12px; font-size:0.9em;
       background:none; border:1px solid #0077cc; border-radius:4px;
@@ -63,6 +67,8 @@
     <select id="categorySelect">
       <option value="">Go to category...</option>
     </select>
+    <label for="articleLimitInput" style="margin-left:10px; font-size:0.9em;">Articles:</label>
+    <input id="articleLimitInput" type="number" min="1" value="5" style="width:3em; font-size:0.9em;">
     <button id="refresh">Refresh All Feeds</button>
     <button id="themeToggle">Dark Mode</button>
   </header>
@@ -75,6 +81,8 @@
   </main>
 
   <script>
+    var DEFAULT_ARTICLE_LIMIT = 5;
+    var articleLimit = parseInt(localStorage.getItem('articleLimit'),10) || DEFAULT_ARTICLE_LIMIT;
     // ——— Helpers ———
     if(!String.prototype.trim){String.prototype.trim=function(){return this.replace(/^\s+|\s+$/g,"");};}
     if(!Array.prototype.forEach){Array.prototype.forEach=function(cb,thisArg){if(this==null||typeof cb!=="function")return;for(var i=0;i<this.length;i++){if(i in this)cb.call(thisArg,this[i],i,this);}};}
@@ -243,7 +251,7 @@
 
     // ——— selectItems with Atom fallback ———
     function selectItems(feeds, cb){
-      var max=5, res=[], done=0;
+      var max=articleLimit, res=[], done=0;
       function fin(){
         var by={}; feeds.forEach(function(u){by[u]=[];});
         res.forEach(function(r){
@@ -343,9 +351,20 @@
       sel.onchange=function(){ if(this.value) location=this.value; };
     }
 
-   function init(){
+  function init(){
       var c=document.getElementById('content');
       var status=document.getElementById('status');
+      var limitInput=document.getElementById('articleLimitInput');
+      if(limitInput){
+        limitInput.value=articleLimit;
+        limitInput.onchange=function(){
+          var v=parseInt(this.value,10);
+          if(v>0){
+            articleLimit=v;
+            try{ localStorage.setItem('articleLimit',v); }catch(e){}
+          }
+        };
+      }
       c.innerHTML='';
       status.textContent='Loading feeds…';
       document.getElementById('refresh').disabled=true;
